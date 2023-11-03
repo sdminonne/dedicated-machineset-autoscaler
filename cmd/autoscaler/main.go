@@ -22,6 +22,7 @@ func NewAutoscalerCommand() *cobra.Command {
 		ScaleDownInterval: 30 * time.Second,
 		MinWarm:           5,
 		MaxWarm:           8,
+		DryMode:           false,
 	}
 	cmd := &cobra.Command{
 		Use: "autoscaler",
@@ -33,6 +34,7 @@ func NewAutoscalerCommand() *cobra.Command {
 		},
 	}
 	flagSet := cmd.Flags()
+	flagSet.BoolVarP(&opts.DryMode, "dry-mode", "n", opts.DryMode, "Don't scale-up and/or scale-down when set to true")
 	flagSet.DurationVar(&opts.ScaleUpInterval, "scale-up-interval", opts.ScaleUpInterval, "Interval between reconciles for scaling up (specify quantity and unit ie. 30s, 2m, etc)")
 	flagSet.DurationVar(&opts.ScaleDownInterval, "scale-down-interval", opts.ScaleDownInterval, "Interval between reconciles for scaling down (specify quantity and unit ie. 30s, 2m, etc)")
 	flagSet.IntVar(&opts.MinWarm, "minimum-warm", opts.MinWarm, "Minimum warm sets of nodes (number of 2-node groups from different zones for a HostedCluster)")

@@ -26,6 +26,11 @@ type ScaleDownReconciler struct {
 	client.Client
 	Interval time.Duration
 	MaxWarm  int
+	// exposed for testing purpose
+	listNodesHandler        func(ctx context.Context) (*corev1.NodeList, error)
+	updateMachineSetHandler func(ctx context.Context, machineSet *machinev1.MachineSet) error
+	listMachineSetHandler   func(ctx context.Context) (*machinev1.MachineSetList, error)
+	listMachinesHandler     func(ctx context.Context) (*machinev1.MachineList, error)
 }
 
 func (r *ScaleDownReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -61,12 +66,46 @@ func (n nodesByCreationDate) Less(i, j int) bool {
 	return n[i].CreationTimestamp.Before(&n[j].CreationTimestamp)
 }
 
+func (r *ScaleDownReconciler) listServingComponentNodes(ctx context.Context) (*corev1.NodeList, error) {
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList, client.MatchingLabels{RequestServingComponentLabel: "true"}); err != nil {
+		return &corev1.NodeList{}, fmt.Errorf("failed to get node list: %w", err)
+	}
+	return nodeList, nil
+}
+
+func (r *ScaleDownReconciler) updateMachineSet(ctx context.Context, machineSet *machinev1.MachineSet) error {
+	return r.Update(ctx, machineSet)
+}
+
+func (r *ScaleDownReconciler) dryModeUpdateMachineSet(ctx context.Context, machineSet *machinev1.MachineSet) error {
+	log := ctrl.LoggerFrom(ctx)
+	log.Info("I would love to scale down ", "name", machineSet.Name)
+	return nil
+}
+
+func (r *ScaleDownReconciler) listMachineSet(ctx context.Context) (*machinev1.MachineSetList, error) {
+	machineSetList := &machinev1.MachineSetList{}
+	if err := r.List(ctx, machineSetList); err != nil {
+		return &machinev1.MachineSetList{}, fmt.Errorf("failed to list machinesets: %w", err)
+	}
+	return machineSetList, nil
+}
+
+func (r *ScaleDownReconciler) listMachines(ctx context.Context) (*machinev1.MachineList, error) {
+	machineList := &machinev1.MachineList{}
+	if err := r.List(ctx, machineList); err != nil {
+		return &machinev1.MachineList{}, fmt.Errorf("failed to list machines: %w", err)
+	}
+	return machineList, nil
+}
+
 func (r *ScaleDownReconciler) Reconcile(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList, client.MatchingLabels{RequestServingComponentLabel: "true"}); err != nil {
-		return fmt.Errorf("failed to get node list: %w", err)
+	nodeList, err := r.listNodesHandler(ctx)
+	if err != nil {
+		return err
 	}
 	log.Info("Request serving nodes in cluster", "count", len(nodeList.Items))
 
@@ -90,14 +129,14 @@ func (r *ScaleDownReconciler) Reconcile(ctx context.Context) error {
 	}
 	log.Info("Nodes to scale down", "nodes", nodeNames(nodesToScaleDown))
 
-	machineList := &machinev1.MachineList{}
-	if err := r.List(ctx, machineList); err != nil {
-		return fmt.Errorf("failed to list machines: %w", err)
+	machineList, err := r.listMachinesHandler(ctx)
+	if err != nil {
+		return err
 	}
 
-	machineSetList := &machinev1.MachineSetList{}
-	if err := r.List(ctx, machineSetList); err != nil {
-		return fmt.Errorf("failed to list machiesets: %w", err)
+	machineSetList, err := r.listMachineSetHandler(ctx)
+	if err != nil {
+		return err
 	}
 
 	machineSetsToScaleDown := machineSetsForNodes(log, nodesToScaleDown, machineList.Items, machineSetList.Items)
@@ -110,7 +149,7 @@ func (r *ScaleDownReconciler) Reconcile(ctx context.Context) error {
 			continue
 		}
 		machineSet.Spec.Replicas = pointer.Int32(0)
-		if err := r.Update(ctx, machineSet); err != nil {
+		if err := r.updateMachineSetHandler(ctx, machineSet); err != nil {
 			return fmt.Errorf("failed to scale down machineset %s: %w", machineSet.Name, err)
 		}
 		log.Info("Scaled down machineset", "name", machineSet.Name)

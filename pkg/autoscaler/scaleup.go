@@ -26,6 +26,10 @@ type ScaleUpReconciler struct {
 	client.Client
 	Interval time.Duration
 	MinWarm  int
+	// exposed for testing purpose
+	listNodesHandler        func(ctx context.Context) (*corev1.NodeList, error)
+	updateMachineSetHandler func(ctx context.Context, machineSet *machinev1.MachineSet) error
+	listMachineSetHandler   func(ctx context.Context) (*machinev1.MachineSetList, error)
 }
 
 func (r *ScaleUpReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -39,6 +43,32 @@ func (r *ScaleUpReconciler) Run(ctx context.Context) error {
 	return wait.PollUntilContextCancel(ctx, r.Interval, true, r.sync)
 }
 
+func (r *ScaleUpReconciler) listServingComponentNodes(ctx context.Context) (*corev1.NodeList, error) {
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList, client.MatchingLabels{RequestServingComponentLabel: "true"}); err != nil {
+		return &corev1.NodeList{}, fmt.Errorf("failed to get node list: %w", err)
+	}
+	return nodeList, nil
+}
+
+func (r *ScaleUpReconciler) updateMachineSet(ctx context.Context, machineSet *machinev1.MachineSet) error {
+	return r.Update(ctx, machineSet)
+}
+
+func (r *ScaleUpReconciler) dryModeUpdateMachineSet(ctx context.Context, machineSet *machinev1.MachineSet) error {
+	log := ctrl.LoggerFrom(ctx)
+	log.Info("I would love to scale up ", "name", machineSet.Name)
+	return nil
+}
+
+func (r *ScaleUpReconciler) listMachineSet(ctx context.Context) (*machinev1.MachineSetList, error) {
+	machineSetList := &machinev1.MachineSetList{}
+	if err := r.List(ctx, machineSetList); err != nil {
+		return &machinev1.MachineSetList{}, fmt.Errorf("failed to list machinesets: %w", err)
+	}
+	return machineSetList, nil
+}
+
 func (r *ScaleUpReconciler) sync(ctx context.Context) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
 	if err := r.Reconcile(ctx); err != nil {
@@ -50,9 +80,9 @@ func (r *ScaleUpReconciler) sync(ctx context.Context) (bool, error) {
 func (r *ScaleUpReconciler) Reconcile(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList, client.MatchingLabels{RequestServingComponentLabel: "true"}); err != nil {
-		return fmt.Errorf("failed to get node list: %w", err)
+	nodeList, err := r.listNodesHandler(ctx)
+	if err != nil {
+		return err
 	}
 	log.Info("Request serving nodes in cluster", "count", len(nodeList.Items))
 
@@ -72,9 +102,10 @@ func (r *ScaleUpReconciler) Reconcile(ctx context.Context) error {
 
 func (r *ScaleUpReconciler) scaleUp(ctx context.Context, pairsNeeded int, unpairedNodes []corev1.Node) error {
 	log := ctrl.LoggerFrom(ctx)
-	machineSetList := &machinev1.MachineSetList{}
-	if err := r.List(ctx, machineSetList); err != nil {
-		return fmt.Errorf("failed to list machinesets: %w", err)
+
+	machineSetList, err := r.listMachineSetHandler(ctx)
+	if err != nil {
+		return err
 	}
 
 	requestServingMachineSets := filterMachineSets(machineSetList.Items, requestServingComponentMachineSet)
@@ -96,7 +127,7 @@ func (r *ScaleUpReconciler) scaleUp(ctx context.Context, pairsNeeded int, unpair
 	for i := range machineSetsToScaleUp {
 		machineSet := &machineSetsToScaleUp[i]
 		machineSet.Spec.Replicas = pointer.Int32(1)
-		if err := r.Update(ctx, machineSet); err != nil {
+		if err := r.updateMachineSetHandler(ctx, machineSet); err != nil {
 			return fmt.Errorf("failed to scale up machineset %s: %w", machineSet.Name, err)
 		}
 		log.Info("Scaled up machineset", "name", machineSet.Name)

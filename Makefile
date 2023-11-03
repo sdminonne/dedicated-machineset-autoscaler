@@ -14,3 +14,16 @@ build: autoscaler
 .PHONY: autoscaler
 autoscaler:
 	$(GO_BUILD_RECIPE) -o $(BIN_DIR)/autoscaler ./cmd/autoscaler
+
+# test
+.PHONY: test
+test:
+	${GO} test ./...
+
+.PHONY: cover
+cover:
+	${GO} test -coverprofile=coverage.out ./...
+
+.PHONY: view-cover
+view-cover: cover
+	${GO}  tool cover -html=coverage.out
