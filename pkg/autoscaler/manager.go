@@ -10,6 +10,7 @@ import (
 	_ "k8s.io/client-go/scale"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 type Options struct {
@@ -31,8 +32,10 @@ func Run(ctx context.Context, opts *Options) error {
 	restConfig.UserAgent = "Autoscaler controller"
 
 	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
-		Scheme:             Scheme,
-		MetricsBindAddress: "0",
+		Scheme: Scheme,
+		Metrics: server.Options{
+			BindAddress: "0",
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("unable to start manager: %w", err)
