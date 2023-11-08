@@ -85,14 +85,17 @@ func (r *ScaleUpReconciler) Reconcile(ctx context.Context) error {
 		return err
 	}
 	log.Info("Request serving nodes in cluster", "count", len(nodeList.Items))
+	fmt.Println("Dario: Request serving nodes in cluster", "count", len(nodeList.Items))
 
 	availableNodes := filterNodes(nodeList.Items, isAvailableNode)
 	log.Info("Request serving nodes in cluster that have not been assigned to a HostedCluster", "count", len(availableNodes))
 
 	availableNodePairs, _, unpairedNodes := pairNodes(availableNodes)
 	log.Info("Available request serving node pairs", "count", availableNodePairs)
+	fmt.Println("Dario: Available request serving node pairs", "count", availableNodePairs, "unpaired nodes: ", nodeNames(unpairedNodes))
 	if availableNodePairs < r.MinWarm {
 		log.Info("Warm node pair count is less than minimum, will scale up", "pairs needed", r.MinWarm-availableNodePairs)
+		fmt.Println("Dario: Warm node pair count is less than minimum, will scale up", "pairs needed", r.MinWarm-availableNodePairs)
 		if err := r.scaleUp(ctx, r.MinWarm-availableNodePairs, unpairedNodes); err != nil {
 			return fmt.Errorf("failed to scale up: %w", err)
 		}
@@ -109,21 +112,24 @@ func (r *ScaleUpReconciler) scaleUp(ctx context.Context, pairsNeeded int, unpair
 	}
 
 	requestServingMachineSets := filterMachineSets(machineSetList.Items, requestServingComponentMachineSet)
-	log.Info("Request serving machinesets", "count", len(requestServingMachineSets))
+	fmt.Println("Dario: Request serving machinesets", "count", len(requestServingMachineSets))
 
 	// machineSetsWithNoNodes are machine sets that do not yet have a corresponding node available (they're available to be scaled up)
 	machineSetsWithNoNodes := filterMachineSets(requestServingMachineSets, availableMachineSet)
+	fmt.Println("Dario: Machinesets with no nodes", "count", len(machineSetsWithNoNodes))
 	log.Info("Machinesets with no nodes", "count", len(machineSetsWithNoNodes))
 
 	// inProgressMachineSets is the subset of machinesets without nodes but have a spec
 	// of replicas==1. These are machinesets that are in progress.
 	inProgressMachineSets := filterMachineSets(machineSetsWithNoNodes, scaledUpMachineSet)
+	fmt.Println("Dario: Machinesets with no nodes that are in progress", "count", len(inProgressMachineSets))
 	log.Info("Machinesets with no nodes that are in progress", "count", len(inProgressMachineSets))
 
 	// Using the machinesets that are in progress, determine which machinesets to scale up
 	machineSetsToScaleUp := machineSetsToScaleUp(append(inProgressMachineSets, filterMachineSets(machineSetsWithNoNodes, notScaledUpMachineSet)...), unpairedNodes, pairsNeeded)
 
 	log.Info("Machinesets to scale up", "count", len(machineSetsToScaleUp), "names", machineSetNames(machineSetsToScaleUp))
+	fmt.Println("Dario: Machinesets to scale up", "count", len(machineSetsToScaleUp), "names", machineSetNames(machineSetsToScaleUp))
 	for i := range machineSetsToScaleUp {
 		machineSet := &machineSetsToScaleUp[i]
 		machineSet.Spec.Replicas = pointer.Int32(1)
@@ -131,6 +137,7 @@ func (r *ScaleUpReconciler) scaleUp(ctx context.Context, pairsNeeded int, unpair
 			return fmt.Errorf("failed to scale up machineset %s: %w", machineSet.Name, err)
 		}
 		log.Info("Scaled up machineset", "name", machineSet.Name)
+		fmt.Println("Dario: Scaled up machineset", "name", machineSet.Name)
 	}
 	return nil
 }
@@ -213,6 +220,7 @@ func removeNodePair(nodes []corev1.Node) (remainingNodes []corev1.Node, pair []c
 // that could not be paired.
 func pairNodes(nodes []corev1.Node) (pairCount int, paired [][]corev1.Node, unpaired []corev1.Node) {
 	unpaired = nodes
+	fmt.Println("Dario: unpaired nodes-> ", nodeNames(unpaired))
 	// Find how many pairs of nodes with distinct zones we have
 	pairCount = 0
 	for len(unpaired) > 0 {
@@ -283,11 +291,13 @@ func filterMachineSets(machineSets []machinev1.MachineSet, filter func(*machinev
 func machineSetZone(machineSet *machinev1.MachineSet) string {
 	providerSpec := &unstructured.Unstructured{}
 	if _, _, err := unstructured.UnstructuredJSONScheme.Decode(machineSet.Spec.Template.Spec.ProviderSpec.Value.Raw, nil, providerSpec); err != nil {
-		return machineSet.Name[len(machineSet.Name)-5:]
+		// TODO: swallowing error here
+		return machineSet.Name[len(machineSet.Name)-5:] // TODO: what if the len(machineSet.Name)<5
 	}
 	zone, _, err := unstructured.NestedString(providerSpec.Object, "placement", "availabilityZone")
 	if err != nil {
-		return machineSet.Name[len(machineSet.Name)-5:]
+		// TODO: swallowing error here
+		return machineSet.Name[len(machineSet.Name)-5:] // TODO: what if the len(machineSet.Name)<5
 	}
 	return zone
 }

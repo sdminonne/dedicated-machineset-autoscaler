@@ -9,6 +9,7 @@ import (
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
 
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -16,10 +17,12 @@ import (
 )
 
 const (
-	noClusterID string = ""
-	zoneA       string = "zone-A"
-	zoneB       string = "zone-B"
-	noMachine   string = ""
+	noClusterID        string = ""
+	noMachine          string = ""
+	desiredReplicas1   int32  = 1
+	desiredReplicas0   int32  = 0
+	availableReplicas1 int32  = 1
+	availableReplicas0 int32  = 0
 )
 
 func nHoursAgo(n int) metav1.Time {
@@ -27,7 +30,7 @@ func nHoursAgo(n int) metav1.Time {
 	return metav1.NewTime(now.Add(time.Duration(-n) * time.Hour))
 }
 
-func newNode(name, zone, clusterID, machineAnnotationValue string, creationTimeStamp metav1.Time) corev1.Node {
+func newNode(name, zone, clusterID, machine string, creationTimeStamp metav1.Time) corev1.Node {
 	n := corev1.Node{
 		TypeMeta: metav1.TypeMeta{Kind: "Node"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -46,13 +49,13 @@ func newNode(name, zone, clusterID, machineAnnotationValue string, creationTimeS
 	if len(clusterID) > 0 {
 		n.Labels[HostedClusterLabel] = clusterID
 	}
-	if len(machineAnnotationValue) > 0 {
-		n.Annotations[machineAnnotation] = machineAnnotationValue
+	if len(machine) > 0 {
+		n.Annotations[machineAnnotation] = machine
 	}
 	return n
 }
 
-func newMachine(name, machineSetLabelValue string) machinev1.Machine {
+func newMachine(name, machineSet string) machinev1.Machine {
 	m := machinev1.Machine{
 		TypeMeta: metav1.TypeMeta{Kind: "Machine"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -60,22 +63,47 @@ func newMachine(name, machineSetLabelValue string) machinev1.Machine {
 			Labels: make(map[string]string),
 		},
 	}
-	if len(machineSetLabelValue) > 0 {
-		m.Labels[machineSetLabel] = machineSetLabelValue
+	if len(machineSet) > 0 {
+		m.Labels[machineSetLabel] = machineSet
 	}
 	return m
 }
 
-func newMachineSet(name string) machinev1.MachineSet {
-	return machinev1.MachineSet{
+func newAWSMachineProviderConfigSerialized(region, az string) []byte {
+	return []byte(fmt.Sprintf(`{"kind": "AWSMachineProviderConfig", 
+	"placement": { 
+	  "availabilityZone": "%s",
+	  "region": "%s"
+	}
+  }`, az, region))
+}
+
+func newMachineSet(name string, desiredReplicas int32, az string, availableReplicas int32) machinev1.MachineSet {
+	ms := machinev1.MachineSet{
 		TypeMeta: metav1.TypeMeta{Kind: "MachineSet"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
 		Spec: machinev1.MachineSetSpec{
-			Replicas: pointer.Int32(1),
+			Replicas: pointer.Int32(desiredReplicas),
+			Template: machinev1.MachineTemplateSpec{
+				Spec: machinev1.MachineSpec{
+					ObjectMeta: machinev1.ObjectMeta{
+						Labels: map[string]string{RequestServingComponentLabel: "true"},
+					},
+					ProviderSpec: machinev1.ProviderSpec{
+						Value: &runtime.RawExtension{
+							Raw: newAWSMachineProviderConfigSerialized("region", az),
+						},
+					},
+				},
+			},
 		},
 	}
+	if availableReplicas > 0 {
+		ms.Status.AvailableReplicas = availableReplicas
+	}
+	return ms
 }
 
 func TestScaleDownReconciler_Reconcile(t *testing.T) {
@@ -117,12 +145,12 @@ func TestScaleDownReconciler_Reconcile(t *testing.T) {
 					return &corev1.NodeList{
 						TypeMeta: metav1.TypeMeta{Kind: "NodeList"},
 						Items: []corev1.Node{
-							newNode("node5", zoneA, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node6", zoneB, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node7", zoneA, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node8", zoneB, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node9", zoneA, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node10", zoneB, noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node5", "zone-a1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node6", "zone-b1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node7", "zone-a1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node8", "zone-b1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node9", "zone-a1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node10", "zone-b1", noClusterID, noMachine, nHoursAgo(10)),
 						},
 					}, nil
 				},
@@ -142,12 +170,12 @@ func TestScaleDownReconciler_Reconcile(t *testing.T) {
 					return &corev1.NodeList{
 						TypeMeta: metav1.TypeMeta{Kind: "NodeList"},
 						Items: []corev1.Node{
-							newNode("node5", zoneA, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node6", zoneB, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node7", zoneA, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node8", zoneB, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node9", zoneA, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node10", zoneB, noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node5", "zone-a1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node6", "zone-b1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node7", "zone-a1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node8", "zone-b1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node9", "zone-a1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node10", "zone-b1", noClusterID, noMachine, nHoursAgo(10)),
 						},
 					}, nil
 				},
@@ -170,16 +198,16 @@ func TestScaleDownReconciler_Reconcile(t *testing.T) {
 					return &corev1.NodeList{
 						TypeMeta: metav1.TypeMeta{Kind: "NodeList"},
 						Items: []corev1.Node{
-							newNode("node1", zoneA, "cluster-1", noMachine, nHoursAgo(10)),
-							newNode("node2", zoneB, "cluster-1", noMachine, nHoursAgo(10)),
-							newNode("node3", zoneA, "cluster-2", noMachine, nHoursAgo(10)),
-							newNode("node4", zoneB, "cluster-2", noMachine, nHoursAgo(10)),
-							newNode("node5", zoneA, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node6", zoneB, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node7", zoneA, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node8", zoneB, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node9", zoneA, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node10", zoneB, noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node1", "zone-a1", "cluster-1", noMachine, nHoursAgo(10)),
+							newNode("node2", "zone-b1", "cluster-1", noMachine, nHoursAgo(10)),
+							newNode("node3", "zone-a1", "cluster-2", noMachine, nHoursAgo(10)),
+							newNode("node4", "zone-b1", "cluster-2", noMachine, nHoursAgo(10)),
+							newNode("node5", "zone-a1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node6", "zone-b1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node7", "zone-a1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node8", "zone-b1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node9", "zone-a1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node10", "zone-b1", noClusterID, noMachine, nHoursAgo(10)),
 						},
 					}, nil
 				},
@@ -196,16 +224,16 @@ func TestScaleDownReconciler_Reconcile(t *testing.T) {
 					return &corev1.NodeList{
 						TypeMeta: metav1.TypeMeta{Kind: "NodeList"},
 						Items: []corev1.Node{
-							newNode("node1", zoneA, "cluster-1", noMachine, nHoursAgo(9)),
-							newNode("node2", zoneB, "cluster-1", noMachine, nHoursAgo(8)),
-							newNode("node3", zoneA, "cluster-2", noMachine, nHoursAgo(7)),
-							newNode("node4", zoneB, "cluster-2", noMachine, nHoursAgo(7)),
-							newNode("node5", zoneA, noClusterID, noMachine, nHoursAgo(10)),
-							newNode("node6", zoneB, noClusterID, noMachine, nHoursAgo(11)),
-							newNode("node7", zoneA, noClusterID, "openshift-machine-api/machine-A7", nHoursAgo(12)),
-							newNode("node8", zoneB, noClusterID, "openshift-machine-api/machine-B8", nHoursAgo(13)),
-							newNode("node9", zoneA, noClusterID, "openshift-machine-api/machine-A9", nHoursAgo(14)),
-							newNode("node10", zoneB, noClusterID, "openshift-machine-api/machine-B10", nHoursAgo(15)),
+							newNode("node1", "zone-A1", "cluster-1", noMachine, nHoursAgo(9)),
+							newNode("node2", "zone-B1", "cluster-1", noMachine, nHoursAgo(8)),
+							newNode("node3", "zone-A1", "cluster-2", noMachine, nHoursAgo(7)),
+							newNode("node4", "zone-B1", "cluster-2", noMachine, nHoursAgo(7)),
+							newNode("node5", "zone-A1", noClusterID, noMachine, nHoursAgo(10)),
+							newNode("node6", "zone-B1", noClusterID, noMachine, nHoursAgo(11)),
+							newNode("node7", "zone-A1", noClusterID, "openshift-machine-api/machine-A7", nHoursAgo(12)),
+							newNode("node8", "zone-B1", noClusterID, "openshift-machine-api/machine-B8", nHoursAgo(13)),
+							newNode("node9", "zone-A1", noClusterID, "openshift-machine-api/machine-A9", nHoursAgo(14)),
+							newNode("node10", "zone-B1", noClusterID, "openshift-machine-api/machine-B10", nHoursAgo(15)),
 						},
 					}, nil
 				},
@@ -230,16 +258,16 @@ func TestScaleDownReconciler_Reconcile(t *testing.T) {
 					return &machinev1.MachineSetList{
 						TypeMeta: metav1.TypeMeta{Kind: "MachineSetList"},
 						Items: []machinev1.MachineSet{
-							newMachineSet("machineSet-A1"),
-							newMachineSet("machineSet-B2"),
-							newMachineSet("machineSet-A3"),
-							newMachineSet("machineSet-B4"),
-							newMachineSet("machineSet-A5"),
-							newMachineSet("machineSet-B6"),
-							newMachineSet("machineSet-A7"),
-							newMachineSet("machineSet-B8"),
-							newMachineSet("machineSet-A9"),
-							newMachineSet("machineSet-B10"),
+							newMachineSet("machineSet-A1", desiredReplicas1, "zone-A1", availableReplicas0),
+							newMachineSet("machineSet-B2", desiredReplicas1, "zone-B2", availableReplicas0),
+							newMachineSet("machineSet-A3", desiredReplicas1, "zone-A3", availableReplicas0),
+							newMachineSet("machineSet-B4", desiredReplicas1, "zone-B4", availableReplicas0),
+							newMachineSet("machineSet-A5", desiredReplicas1, "zone-A5", availableReplicas0),
+							newMachineSet("machineSet-B6", desiredReplicas1, "zone-B6", availableReplicas0),
+							newMachineSet("machineSet-A7", desiredReplicas1, "zone-A7", availableReplicas0),
+							newMachineSet("machineSet-B8", desiredReplicas1, "zone-B8", availableReplicas0),
+							newMachineSet("machineSet-A9", desiredReplicas1, "zone-A9", availableReplicas0),
+							newMachineSet("machineSet-B10", desiredReplicas1, "zone-B10", availableReplicas0),
 						},
 					}, nil
 				},
