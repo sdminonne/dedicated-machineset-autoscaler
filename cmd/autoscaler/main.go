@@ -18,11 +18,11 @@ func main() {
 
 func NewAutoscalerCommand() *cobra.Command {
 	opts := &autoscaler.Options{
-		ScaleUpInterval:   10 * time.Second,
-		ScaleDownInterval: 30 * time.Second,
+		ScaleUpInterval:   60 * time.Second,
+		ScaleDownInterval: 300 * time.Second,
 		MinWarm:           5,
 		MaxWarm:           8,
-		DryMode:           false,
+		DryMode:           true,
 	}
 	cmd := &cobra.Command{
 		Use: "autoscaler",

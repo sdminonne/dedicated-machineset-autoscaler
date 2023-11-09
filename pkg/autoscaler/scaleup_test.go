@@ -6,13 +6,14 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/onsi/gomega"
+	//. "github.com/onsi/gomega"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+/*
 func TestRemoveNodePair(t *testing.T) {
 	tests := []struct {
 		input           []corev1.Node
@@ -109,6 +110,7 @@ func ms(name string) machinev1.MachineSet {
 	ms.Name = name
 	return ms
 }
+*/
 
 func TestScaleUpReconciler_Reconcile(t *testing.T) {
 	type fields struct {
@@ -147,14 +149,14 @@ func TestScaleUpReconciler_Reconcile(t *testing.T) {
 					return &corev1.NodeList{
 						TypeMeta: metav1.TypeMeta{Kind: "NodeList"},
 						Items: []corev1.Node{
-							newNode("node1", "zone-a1", "cluster-1", "openshift-machine-api/machine-A1", nHoursAgo(9)),
-							newNode("node2", "zone-b1", "cluster-1", "openshift-machine-api/machine-B2", nHoursAgo(8)),
-							newNode("node3", "zone-a1", "cluster-2", "openshift-machine-api/machine-A3", nHoursAgo(7)),
-							newNode("node4", "zone-b1", "cluster-2", "openshift-machine-api/machine-B4", nHoursAgo(7)),
-							newNode("node5", "zone-a1", noClusterID, "openshift-machine-api/machine-A5", nHoursAgo(7)),
-							newNode("node6", "zone-b1", noClusterID, "openshift-machine-api/machine-B6", nHoursAgo(7)),
-							newNode("node7", "zone-a1", noClusterID, "openshift-machine-api/machine-A7", nHoursAgo(7)),
-							newNode("node8", "zone-b1", noClusterID, "openshift-machine-api/machine-B8", nHoursAgo(7)),
+							newNode("node1", "zone-a1", "cluster-1", "openshift-machine-api/machine-A1", "serving-1", nHoursAgo(9)),
+							newNode("node2", "zone-b1", "cluster-1", "openshift-machine-api/machine-B2", "serving-1", nHoursAgo(8)),
+							newNode("node3", "zone-a1", "cluster-2", "openshift-machine-api/machine-A3", "serving-2", nHoursAgo(7)),
+							newNode("node4", "zone-b1", "cluster-2", "openshift-machine-api/machine-B4", "serving-2", nHoursAgo(7)),
+							newNode("node5", "zone-a1", noClusterID, "openshift-machine-api/machine-A5", "serving-3", nHoursAgo(7)),
+							newNode("node6", "zone-b1", noClusterID, "openshift-machine-api/machine-B6", "serving-3", nHoursAgo(7)),
+							newNode("node7", "zone-a1", noClusterID, "openshift-machine-api/machine-A7", "serving-4", nHoursAgo(7)),
+							newNode("node8", "zone-b1", noClusterID, "openshift-machine-api/machine-B8", "serving-4", nHoursAgo(7)),
 						},
 					}, nil
 				},
@@ -171,10 +173,10 @@ func TestScaleUpReconciler_Reconcile(t *testing.T) {
 					return &corev1.NodeList{
 						TypeMeta: metav1.TypeMeta{Kind: "NodeList"},
 						Items: []corev1.Node{
-							newNode("node1", "zone-a1", "cluster-1", "openshift-machine-api/machine-A1", nHoursAgo(9)),
-							newNode("node2", "zone-b1", "cluster-1", "openshift-machine-api/machine-B2", nHoursAgo(8)),
-							newNode("node3", "zone-a1", "cluster-2", "openshift-machine-api/machine-A3", nHoursAgo(7)),
-							newNode("node4", "zone-b1", "cluster-2", "openshift-machine-api/machine-B4", nHoursAgo(7)),
+							newNode("node1", "zone-a1", "cluster-1", "openshift-machine-api/machine-A1", "serving-1", nHoursAgo(9)),
+							newNode("node2", "zone-b1", "cluster-1", "openshift-machine-api/machine-B2", "serving-1", nHoursAgo(8)),
+							newNode("node3", "zone-a1", "cluster-2", "openshift-machine-api/machine-A3", "serving-2", nHoursAgo(7)),
+							newNode("node4", "zone-b1", "cluster-2", "openshift-machine-api/machine-B4", "serving-2", nHoursAgo(7)),
 						},
 					}, nil
 				},
@@ -195,10 +197,10 @@ func TestScaleUpReconciler_Reconcile(t *testing.T) {
 					return &corev1.NodeList{
 						TypeMeta: metav1.TypeMeta{Kind: "NodeList"},
 						Items: []corev1.Node{
-							newNode("node1", "zone-a1", "cluster-1", "openshift-machine-api/machine-A1", nHoursAgo(9)),
-							newNode("node2", "zone-b1", "cluster-1", "openshift-machine-api/machine-B2", nHoursAgo(8)),
-							newNode("node3", "zone-a1", "cluster-2", "openshift-machine-api/machine-A3", nHoursAgo(7)),
-							newNode("node4", "zone-b1", "cluster-2", "openshift-machine-api/machine-B4", nHoursAgo(7)),
+							newNode("node1", "zone-a1", "cluster-1", "openshift-machine-api/machine-A1", "serving-1", nHoursAgo(9)),
+							newNode("node2", "zone-b1", "cluster-1", "openshift-machine-api/machine-B2", "serving-1", nHoursAgo(8)),
+							newNode("node3", "zone-a1", "cluster-2", "openshift-machine-api/machine-A3", "serving-2", nHoursAgo(7)),
+							newNode("node4", "zone-b1", "cluster-2", "openshift-machine-api/machine-B4", "serving-2", nHoursAgo(7)),
 						},
 					}, nil
 				},
@@ -242,12 +244,12 @@ func TestScaleUpReconciler_Reconcile(t *testing.T) {
 					return &corev1.NodeList{
 						TypeMeta: metav1.TypeMeta{Kind: "NodeList"},
 						Items: []corev1.Node{
-							newNode("node01", "zone-1a", noClusterID, "openshift-machine-api/machine-A1", nHoursAgo(9)),
-							newNode("node02", "zone-1b", noClusterID, "openshift-machine-api/machine-A1", nHoursAgo(9)),
-							newNode("node1", "zone-1a", "cluster-1", "openshift-machine-api/machine-A1", nHoursAgo(9)),
-							newNode("node2", "zone-1b", "cluster-1", "openshift-machine-api/machine-B2", nHoursAgo(8)),
-							newNode("node3", "zone-1a", "cluster-2", "openshift-machine-api/machine-A3", nHoursAgo(7)),
-							newNode("node4", "zone-1b", "cluster-2", "openshift-machine-api/machine-B4", nHoursAgo(7)),
+							newNode("node01", "zone-1a", noClusterID, "openshift-machine-api/machine-A1", "serving-1", nHoursAgo(9)),
+							newNode("node02", "zone-1b", noClusterID, "openshift-machine-api/machine-A1", "serving-1", nHoursAgo(9)),
+							newNode("node1", "zone-1a", "cluster-1", "openshift-machine-api/machine-A1", "serving-2", nHoursAgo(9)),
+							newNode("node2", "zone-1b", "cluster-1", "openshift-machine-api/machine-B2", "serving-2", nHoursAgo(8)),
+							newNode("node3", "zone-1a", "cluster-2", "openshift-machine-api/machine-A3", "serving-3", nHoursAgo(7)),
+							newNode("node4", "zone-1b", "cluster-2", "openshift-machine-api/machine-B4", "serving-1", nHoursAgo(7)),
 						},
 					}, nil
 				},

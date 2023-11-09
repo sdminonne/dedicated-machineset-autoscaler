@@ -10,6 +10,8 @@ import (
 	"github.com/go-logr/logr"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -68,7 +70,19 @@ func (n nodesByCreationDate) Less(i, j int) bool {
 
 func (r *ScaleDownReconciler) listServingComponentNodes(ctx context.Context) (*corev1.NodeList, error) {
 	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList, client.MatchingLabels{RequestServingComponentLabel: "true"}); err != nil {
+
+	requireServiceComponent, err := labels.NewRequirement(RequestServingComponentLabel, selection.Equals, []string{"true"})
+	if err != nil {
+		return nodeList, fmt.Errorf("unable to create label selector listing nodes: %v", err)
+	}
+	pairNodesExists, err := labels.NewRequirement(PairedNodesLabelKey, selection.Exists, nil)
+	if err != nil {
+		return nodeList, fmt.Errorf("unable to create label selector listing nodes: %v", err)
+	}
+	selector := labels.NewSelector()
+	selector = selector.Add(*requireServiceComponent, *pairNodesExists)
+	err = r.List(ctx, nodeList, &client.ListOptions{LabelSelector: selector})
+	if err != nil {
 		return &corev1.NodeList{}, fmt.Errorf("failed to get node list: %w", err)
 	}
 	return nodeList, nil
@@ -80,7 +94,7 @@ func (r *ScaleDownReconciler) updateMachineSet(ctx context.Context, machineSet *
 
 func (r *ScaleDownReconciler) dryModeUpdateMachineSet(ctx context.Context, machineSet *machinev1.MachineSet) error {
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("I would love to scale down ", "name", machineSet.Name)
+	log.Info("I would love to scale down ", "name", machineSet.Name, "pair", machineSet.Spec.Template.Spec.Labels[PairedNodesLabelKey])
 	return nil
 }
 

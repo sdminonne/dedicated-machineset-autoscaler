@@ -9,6 +9,8 @@ import (
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -20,6 +22,7 @@ const (
 	RequestServingComponentLabel = "hypershift.openshift.io/request-serving-component"
 	ZoneLabel                    = "topology.kubernetes.io/zone"
 	HostedClusterLabel           = "hypershift.openshift.io/cluster"
+	PairedNodesLabelKey          = "osd-fleet-manager.openshift.io/paired-nodes"
 )
 
 type ScaleUpReconciler struct {
@@ -45,7 +48,19 @@ func (r *ScaleUpReconciler) Run(ctx context.Context) error {
 
 func (r *ScaleUpReconciler) listServingComponentNodes(ctx context.Context) (*corev1.NodeList, error) {
 	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList, client.MatchingLabels{RequestServingComponentLabel: "true"}); err != nil {
+
+	requireServiceComponent, err := labels.NewRequirement(RequestServingComponentLabel, selection.Equals, []string{"true"})
+	if err != nil {
+		return nodeList, fmt.Errorf("unable to create label selector listing nodes: %v", err)
+	}
+	pairNodesExists, err := labels.NewRequirement(PairedNodesLabelKey, selection.Exists, nil)
+	if err != nil {
+		return nodeList, fmt.Errorf("unable to create label selector listing nodes: %v", err)
+	}
+	selector := labels.NewSelector()
+	selector = selector.Add(*requireServiceComponent, *pairNodesExists)
+	err = r.List(ctx, nodeList, &client.ListOptions{LabelSelector: selector})
+	if err != nil {
 		return &corev1.NodeList{}, fmt.Errorf("failed to get node list: %w", err)
 	}
 	return nodeList, nil
@@ -187,8 +202,7 @@ func machineSetsToScaleUp(availablePool []machinev1.MachineSet, unpairedNodes []
 	return result
 }
 
-// removeNodePair looks through a list of nodes and finds a pair with different
-// zones. That pair of nodes is removed from the list
+// removeNodePair looks through a list of nodes and finds the paired nodes according to the label
 func removeNodePair(nodes []corev1.Node) (remainingNodes []corev1.Node, pair []corev1.Node, found bool) {
 	remainingNodes = nodes
 	if len(nodes) == 0 {
@@ -197,7 +211,7 @@ func removeNodePair(nodes []corev1.Node) (remainingNodes []corev1.Node, pair []c
 
 	first := nodes[0]
 	for i := range nodes[1:] {
-		if nodeZone(&nodes[1+i]) != nodeZone(&first) {
+		if first.Labels[PairedNodesLabelKey] == nodes[i+1].Labels[PairedNodesLabelKey] {
 			pair = []corev1.Node{first, nodes[i+1]}
 			remainingNodes = append(remainingNodes[1:1+i], remainingNodes[i+2:]...)
 			found = true
@@ -241,12 +255,7 @@ func filterNodes(nodes []corev1.Node, filter func(*corev1.Node) bool) []corev1.N
 // isAvailableNode returns true if the node
 // does not have a hosted cluster label.
 func isAvailableNode(node *corev1.Node) bool {
-	for k := range node.Labels {
-		if k == HostedClusterLabel {
-			return false
-		}
-	}
-	return true
+	return node.Labels[HostedClusterLabel] == ""
 }
 
 func scaledUpMachineSet(machineSet *machinev1.MachineSet) bool {
@@ -262,12 +271,8 @@ func availableMachineSet(machineSet *machinev1.MachineSet) bool {
 }
 
 func requestServingComponentMachineSet(machineSet *machinev1.MachineSet) bool {
-	for k, v := range machineSet.Spec.Template.Spec.ObjectMeta.Labels {
-		if k == RequestServingComponentLabel && v == "true" {
-			return true
-		}
-	}
-	return false
+	k, v := machineSet.Spec.Template.Spec.ObjectMeta.Labels[RequestServingComponentLabel]
+	return v && k == "true"
 }
 
 func filterMachineSets(machineSets []machinev1.MachineSet, filter func(*machinev1.MachineSet) bool) []machinev1.MachineSet {
